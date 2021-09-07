@@ -36,7 +36,7 @@ python vpc-repr.py [region [vpc-id...]] >report.html
 
 ## Features / Notes
 
-1. Collapsible sections to allow focusing on the sections you are interested in.
+1. Collapsible sections to allow focusing on the sections you are interested in
 2. Keyword occurrences such as IDs can be highlighted using browser find feature (on non-collapsed sections)
 3. Excludes default VPC
 4. Some list items are sorted for easier readability and referencing
