@@ -18,6 +18,8 @@ import datetime
 #       all output goes to stdout so pipe it into an html file of your choosing
 #
 # 9/7/2021 Version 1.0, L. Kuhn 
+# 9/7/2021 Version 1.0.1, L. Kuhn
+#   - fixed transit gateway bug (assumed AWS would return nothing for empty id list; returned all)
 
 now = datetime.datetime.now()
 now = now.strftime("%m/%d/%y %I:%M %p")
@@ -270,14 +272,15 @@ def main():
 
         # transit gateways
         # get tgw's for vpc and dedupe the ids
-        tg_ids = set()
+        tg_ids = {}
         gwa = ec2.describe_transit_gateway_vpc_attachments(Filters=[{'Name': 'vpc-id', 'Values': [f"{vpc_id}"]}])
         for i in range(len(gwa['TransitGatewayVpcAttachments'])):
-            tg_ids.add(gwa['TransitGatewayVpcAttachments'][i]['TransitGatewayId'])
-        tgws = ec2.describe_transit_gateways(TransitGatewayIds=sorted(tg_ids))
-        for i in range(len(tgws['TransitGateways'])):
-            print(f"{tr}Transit Gateway{space}{tgws['TransitGateways'][i]['TransitGatewayId']} ({tgws['TransitGateways'][i]['State']})<td>{tgws['TransitGateways'][i]['Description']}")
-            no_gws = ""
+            tg_ids[gwa['TransitGatewayVpcAttachments'][i]['TransitGatewayId']] = True
+        if len(tg_ids) > 0:
+            tgws = ec2.describe_transit_gateways(TransitGatewayIds=sorted(tg_ids.keys()))
+            for i in range(len(tgws['TransitGateways'])):
+                print(f"{tr}Transit Gateway{space}{tgws['TransitGateways'][i]['TransitGatewayId']} ({tgws['TransitGateways'][i]['State']})<td>{tgws['TransitGateways'][i]['Description']}")
+                no_gws = ""
         
         # end gateways
         print(f"{no_gws}</table></div>")
