@@ -20,6 +20,10 @@ import datetime
 # 9/7/2021 Version 1.0, L. Kuhn 
 # 9/7/2021 Version 1.0.1, L. Kuhn
 #   - fixed transit gateway bug (assumed AWS would return nothing for empty id list; returned all)
+# 9/8/2021 Version 1.0.2 L. Kuhn
+#   - ensure ipv6 cidrs included in vpc peering details
+#   - changed warnings from 'something went wrong' to 'this xxx is not yet supported {xxx}'
+
 
 now = datetime.datetime.now()
 now = now.strftime("%m/%d/%y %I:%M %p")
@@ -385,21 +389,21 @@ def main():
                 if "CidrBlockSet" in pc['RequesterVpcInfo']:
                     for cidr in pc['RequesterVpcInfo']['CidrBlockSet']:
                         rcidr += f"{sep}{cidr['CidrBlock']}"
-                        sep = " "
-                else:
+                        sep = ", "
+                if "Ipv6CidrBlockSet" in pc['RequesterVpcInfo']:
                     for cidr in pc['RequesterVpcInfo']['Ipv6CidrBlockSet']:
                         rcidr += f"{sep}{cidr['Ipv6CidrBlock']}"
-                        sep = " "
+                        sep = ", "
                 acidr = ""
                 sep = ""
                 if "CidrBlockSet" in pc['AccepterVpcInfo']:
                     for cidr in pc['AccepterVpcInfo']['CidrBlockSet']:
                         acidr += f"{sep}{cidr['CidrBlock']}"
-                        sep = " "
-                else:
+                        sep = ", "
+                if "Ipv6CidrBlockSet" in pc['AccepterVpcInfo']:
                     for cidr in pc['AccepterVpcInfo']['Ipv6CidrBlockSet']:
                         acidr += f"{sep}{cidr['Ipv6CidrBlock']}"
-                        sep = " "
+                        sep = ", "
                 print(f"<tr><td>{pc['VpcPeeringConnectionId']}<td>{pc['RequesterVpcInfo']['OwnerId']}<td>{pc['RequesterVpcInfo']['VpcId']}<td>{rcidr}<td>{pc['AccepterVpcInfo']['OwnerId']}<td>{pc['AccepterVpcInfo']['VpcId']}<td>{acidr}<td>{pc['Status']['Code']}")
         else:
             print(f"{tr}None")
@@ -438,7 +442,7 @@ def main():
                     # key is G + gateway id
                     snas_dict[f"G{a['GatewayId']}"] = f"<tr><td>{a['GatewayId']} ({a['AssociationState']['State']})"
                 else:
-                    print(f"{tr}Something Went Wrong")
+                    print(f"{tr}This association is not yet supported: {a}")
             # print snas sorted by group + ids
             for k in sorted(snas_dict):
                 print(snas_dict[k])
@@ -457,7 +461,7 @@ def main():
                     dest = r['DestinationPrefixListId']
                     notes += prefix_dict[r['DestinationPrefixListId']] + " "
                 else:
-                    dest = "Something Went Wrong"
+                    dest = f"This destination is not yet supported: {r}"
                 if "EgressOnlyInternetGatewayId" in r:
                     target = r['EgressOnlyInternetGatewayId']
                 elif "GatewayId" in r:
@@ -490,7 +494,7 @@ def main():
                     vpcpcs = ec2.describe_vpc_peering_connections(VpcPeeringConnectionIds=[r['VpcPeeringConnectionId']])
                     notes += f"VPC Peering Connection "
                 else:
-                    target = "Something Went Wrong"
+                    target = f"This target is not yet supported: {r}"
                 print(f"<tr><td>{dest}<td>{target}<td>{r['State']}<td>{r['Origin']}<td>{notes}</tr>")
             print("</table></div></table>")
         print("</table>")
