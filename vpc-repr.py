@@ -15,7 +15,7 @@ import datetime
 #       all vpcs in the region will be reported by default
 #       specify region and one or more vpc-ids to limit the output, e.g.:
 #           python vpc-repr.py us-east-1 vpc-xxxx vpc-yyyy
-#       all output goes to stdout so pipe it into an html file of your choosing
+#       all output goes to stdout so redirect it into an html file of your choosing
 #
 # 9/7/2021 Version 1.0, L. Kuhn 
 # 9/7/2021 Version 1.0.1, L. Kuhn
