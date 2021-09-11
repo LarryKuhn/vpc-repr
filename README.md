@@ -32,7 +32,7 @@ python vpc-repr.py [region [vpc-id...]] >report.html
 
   `python vpc-repr.py us-east-1 vpc-xxxx vpc-yyyy >report.html`
 
-- all output goes to stdout so pipe it into an html file of your choosing
+- all output goes to stdout so redirect it into an html file of your choosing
 
 ## Features / Notes
 
