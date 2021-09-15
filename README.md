@@ -8,7 +8,7 @@ This was written with the hope of alleviating the nuisance that can be experienc
 
 The software does not focus at all on EC2 instances.  While all of the code uses the Boto3 EC2 client using describe-xxx methods, the focus is on configuration items such as Route Tables and Security Groups. Here is a quick image of a collapsed page with a little redaction:
 
-<img src="html.png" style="zoom: 67%;" />
+<img src="html2.png" style="zoom: 67%;" />
 
 ## Version 2 Features
 
