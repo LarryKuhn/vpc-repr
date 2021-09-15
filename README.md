@@ -16,6 +16,7 @@ With version 2, I've added some features that terminal users might be interested
 
 - Uses the Python "argparse" argument parsing library for command line options.
 - The ability to specify an AWSCLI profile to use instead of defaulting.
+- JSON or HTML can be directed to stdout (for terminal users)
 - Writes JSON to a file, allowing it to be read back into the application for subsequent viewing to avoid having to run commands against AWS.
   - of course jq can always be used on the JSON output as a more robust search and filtering tool.
 - Section switches, limiting what appears in stdout (both JSON and HTML).
