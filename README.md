@@ -37,7 +37,7 @@ With version 2, I've added some features that terminal users might be interested
 
 ## Python Script
 
-* __<span>[vpc-repr.py]()</span>__ - the lone reporting script.
+* __<span>vpc-repr.py</span>__ - the lone reporting script.
 
 ## Usage
 
