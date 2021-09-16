@@ -43,10 +43,9 @@ With version 2, I've added some features that terminal users might be interested
 
 ```shell-session
 
-usage: vpc-repr.py [-h] [-filename FILENAME] [-profile PROFILE] [-region REGION] [-vpc-ids vpc-id [vpc-id ...]] [-j [filename]]
-                   [-split [name|id] [-w] [-ip IP] [-verbose] [-az] [-ci] [-do] [-ep] [-gw] [-na] [-ni] [-pc] [-rt] [-ta] 
-                   [-sh] [-sn] [-sg] [-vp]
-                   
+usage: vpc-repr.py [-h] [-filename FILENAME] [-profile PROFILE] [-region REGION] [-vpc-ids vpc-id [vpc-id ...]]
+                   [-j [filename]] [-split [name|id] [-w] [-ip IP] [-verbose]
+                   [-az] [-ci] [-do] [-ep] [-gw] [-na] [-ni] [-pc] [-rt] [-ta] [-sh] [-sn] [-sg] [-vp]
 
 VPC Report Generator
 
