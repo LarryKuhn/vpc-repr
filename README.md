@@ -21,6 +21,7 @@ With version 2, I've added some features that terminal users might be interested
   - of course jq can always be used on the JSON output as a more robust search and filtering tool.
 - Section switches, limiting what appears in stdout (both JSON and HTML).
 - IP Search function to find IP Address or Networks that match/overlap. See "Verbose" help below.
+- Split option that allows JSON or HTML to be written to separate files per VPC versus stdout
 
 ## Version 1 Features / Notes
 
@@ -40,7 +41,7 @@ With version 2, I've added some features that terminal users might be interested
 
 ## Usage
 
-```bash
+```shell-session
 
 usage: vpc-repr.py [-h] [-filename FILENAME] [-profile PROFILE] [-region REGION] [-vpc-ids vpc-id [vpc-id ...]] [-j [filename]]
                    [-split [name|id] [-w] [-ip IP] [-verbose] [-az] [-ci] [-do] [-ep] [-gw] [-na] [-ni] [-pc] [-rt] [-ta] 
@@ -120,7 +121,7 @@ All Modes:
 
 ## Verbose Help
 
-```bash
+```shell-session
 
 IP Search Switch:
     . read data from AWS or json file
