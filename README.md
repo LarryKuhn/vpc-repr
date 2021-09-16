@@ -39,6 +39,14 @@ With version 2, I've added some features that terminal users might be interested
 
 * __<span>vpc-repr.py</span>__ - the lone reporting script.
 
+## Typical First Usage Example (Windows)
+```dos
+D:\> git clone https://github.com/LarryKuhn/vpc-repr.git
+D:\> cd vpc-repr
+D:\vpc-repr> python vpc-repr.py >vpc.html
+D:\vpc-repr> start vpc.html
+```
+
 ## Usage
 
 ```shell-session
