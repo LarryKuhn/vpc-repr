@@ -29,6 +29,8 @@ import re
 #     - allows reading from saved json
 #     - allows filtering stdout output sections (json or html)
 #     - added capability to find ip network matches and highlight in stdout
+#   9/15/2021 Version 2.0.1, L. Kuhn
+#     - added -split [name|id] option to create multiple reports or json files
 
 
 def datetime_handler(o):
@@ -36,6 +38,13 @@ def datetime_handler(o):
     if isinstance(o, (datetime.datetime, datetime.date)):
         return str(o)
 
+
+def get_tag_name(tagdict):
+    if "Tags" in tagdict:
+        for t in range(len(tagdict['Tags'])):
+            if tagdict['Tags'][t]['Key'] == "Name":
+                return tagdict['Tags'][t]['Value']
+    return ""
 
 def main():
 
@@ -84,6 +93,11 @@ def main():
             . certain referenced data from other sections may be omitted when that section is not included (e.g. subnet names if -sn section is omitted)
         . to capture section switch limited json to a file, use -j switch and redirect stdout to a file
         . use -ip search switch to look for ip address and network overlaps
+        . use -split [name|id] to write multiple output files per VPC versus stdout (JSON or HTML)
+            . uses VPC tag name or VPC id as the file name; will overwrite existing files with the same name
+            . defaults to name, which will use the name (if available from tags) or use id
+            . split json files can be read back into application using -f filename option
+    	. defaults to name, which will use the name (if available from tags) or use id
         . use -verbose switch for more info on -ip switch and command line examples
     """
     argv_verbose = """
@@ -101,6 +115,7 @@ def main():
             . argument ip directly matches found ip
             . will NOT match 2 IPs that might be in the same network (no way of knowing)
         . when a match is found, a yellow 'Match Found' will be written next to the match on screen
+        . if -ip and -split are used with JSON output, highlighting is disabled ('#Match Found!#' is used)
         . may find customer owned ip but generally will not find customer owned ip pools
 
     Examples:
@@ -157,6 +172,7 @@ def main():
     parser.add_argument('-region', nargs=1, help='AWS Region to report on (override environment settings)') 
     parser.add_argument('-vpc-ids', nargs='+', metavar='vpc-id', help='When specified, limits to one or more VPC IDs versus all VPCs in the Region')
     parser.add_argument('-j', '-json', nargs='?', const='NOFILE', metavar='filename', help='Output JSON to stdout (unless -w specified), optionally specify filename to override vpc-repr.json') 
+    parser.add_argument('-split', nargs='?', const='name', choices=['name', 'id'], metavar='name|id', help='Instead of stdout, output JSON/HTML is written to multiple files using VPC name or id as filename') 
     parser.add_argument('-w', '-web', action='store_true', help='Output HTML to stdout')
     parser.add_argument('-ip', nargs=1, help='IP Search - enter IP Address or Network with prefix (e.g. 10.10.10.10 or 10.10.10.0/24)') 
     parser.add_argument('-verbose', action='store_true', help='Display additonal help on -ip switch and command line examples')
@@ -210,11 +226,14 @@ def main():
         vpc_fh = open(args.filename[0], mode='r')
         vpcs = json.load(vpc_fh)
         vpc_fh.close()
-        repr_title = args.filename[0]
+        repr_title = "unknown region"
+        if "Region" in vpcs:
+            repr_title = vpcs['Region']
+        region = repr_title
         repr_date = os.path.getmtime(args.filename[0])
         repr_date = datetime.datetime.fromtimestamp(repr_date)
         repr_date = repr_date.strftime("%m/%d/%y %I:%M %p")
-        repr_title += f" (saved on {repr_date})"
+        repr_title += f" ({args.filename[0]} saved on {repr_date})"
 
     # or get data from AWS
     else:
@@ -237,6 +256,9 @@ def main():
 
         # remove http response data from dict
         del vpcs['ResponseMetadata']
+
+        # add region to vpcs to save in json file
+        vpcs['Region'] = repr_title
 
         # get prefix list definitions
         prefix_dict = {}
@@ -262,10 +284,10 @@ def main():
         del ng_dict['ResponseMetadata']
 
         # eliminate default vpc
-        for i in range(len(vpcs['Vpcs'])):
-            if vpcs['Vpcs'][i]['IsDefault'] is True:
-                del vpcs['Vpcs'][i]
-                break
+        # for i in range(len(vpcs['Vpcs'])):
+        #     if vpcs['Vpcs'][i]['IsDefault'] is True:
+        #         del vpcs['Vpcs'][i]
+        #         break
 
         ## process all vpcs to build each vpc object
         for vpc in vpcs['Vpcs']:
@@ -279,11 +301,7 @@ def main():
             for sn in tmp['Subnets']:
 
                 # get subnet name from tags if it exists
-                sn_names_dict[sn['SubnetId']] = ""
-                for t in range(len(sn['Tags'])):
-                    if sn['Tags'][t]['Key'] == "Name":
-                        sn_names_dict[sn['SubnetId']] = sn['Tags'][t]['Value']
-                        break
+                sn_names_dict[sn['SubnetId']] = get_tag_name(sn)
 
             # azs
             vpc['AvailabilityZones'] = az_dict['AvailabilityZones']
@@ -404,9 +422,6 @@ def main():
         # write out vpcs to json output file handle
         json.dump(vpcs, json_fh, indent=2, default=datetime_handler)
 
-    # reset some vars
-    az_dict = {}
-
     # section limited stdout?
     if True in [args.az, args.ci, args.do, args.ep, args.gw, args.na, args.ni, args.pc, args.rt, args.sg, args.sh, args.sn, args.ta, args.vp]:
         for vpc in vpcs['Vpcs']:
@@ -519,179 +534,173 @@ def main():
                     continue
             findip(vpcs['Vpcs'][i], match, network, ippath=vpcs['Vpcs'][i])
 
-        # convert dict to string to allow replacing highlight placeholder with a working highlighter
-        # this is only needed because json.dumps does not handle terminal control characters
-        json_string = json.dumps(vpcs, indent=2, default=datetime_handler)
+        # split option with json? bypass highlighting code and drop back into normal processing
+        if out != "json" or args.split is None:
 
-        if out == "json":
-            # json - use terminal colors
-            class style():
-                RED = '\033[31m'
-                GREEN = '\033[1;32m'
-                YELLOW = '\033[33m'
-                BLUE = '\033[34m'
-                RESET = '\033[0m'
-            repl = style.YELLOW + "Match Found!" + style.RESET
-            # run substitution
-            tmp = re.sub("#Match Found!#", repl, json_string)
-            # System call - may not be needed but some claim it allows colorize functions to work for some reason
-            os.system("")
-            # send highlighted json to stdout and end
-            print(tmp)
-            sys.exit()
-        else:
-            # html output - substitute in place with html
-            repl = "<span style='background-color:blue;color:yellow;'>Match Found!</span>"
-            tmp = re.sub("#Match Found!#", repl, json_string)
-            del json_string
-            vpcs = json.loads(tmp)
-            del tmp
+            # convert dict to string to allow replacing highlight placeholder with a working highlighter
+            # this is only needed because json.dumps does not handle terminal control characters
+            json_string = json.dumps(vpcs, indent=2, default=datetime_handler)
+
+            if out == "json":
+                # json - use terminal colors
+                class style():
+                    RED = '\033[31m'
+                    GREEN = '\033[1;32m'
+                    YELLOW = '\033[33m'
+                    BLUE = '\033[34m'
+                    RESET = '\033[0m'
+                repl = style.YELLOW + "Match Found!" + style.RESET
+                # run substitution
+                tmp = re.sub("#Match Found!#", repl, json_string)
+                # System call - may not be needed but some claim it allows colorize functions to work for some reason
+                os.system("")
+                # send highlighted json to stdout and end
+                print(tmp)
+                sys.exit()
+            else:
+                # html output - substitute in place with html
+                repl = "<span style='background-color:blue;color:yellow;'>Match Found!</span>"
+                tmp = re.sub("#Match Found!#", repl, json_string)
+                del json_string
+                vpcs = json.loads(tmp)
+                del tmp
 
     # json to stdout
     if out == "json":
-        print(json.dumps(vpcs, indent=2, ensure_ascii=False, default=datetime_handler))
+        if args.split is None:
+            print(json.dumps(vpcs, indent=2, default=datetime_handler))
+        else:
+            # json to split output files
+            for vpc in vpcs['Vpcs']:
+                vpc_id = vpc['VpcId']
+                if args.split == "name":
+                    vpc_file = get_tag_name(vpc)
+                    if vpc_file == "":
+                        vpc_file = vpc_id
+                else:
+                    vpc_file = vpc_id
+                vpct = {'Vpcs': [vpc]}
+                vpct['Region'] = region
+                with open(f'{vpc_file}.json', mode='w') as vf:
+                    json.dump(vpct, vf, indent=2, default=datetime_handler)
 
-    # html to stdout
+    # html to stdout or split
     else:
-        if args.vpc_ids is not None:
+        if args.vpc_ids is not None and args.split is None:
             partial = "Partial "
         else:
             partial = ""
 
-        # html styles
-        print("<!DOCTYPE html>")
-        print("<html>")
-        print("<div class='container'>")
-        print(f"<head><p style='font-size:150%;text-align:center;color:blue;'>{partial}VPC Configuration Report for {repr_title}<br>{now}")
-        if args.ip is not None:
-            print(f"<br>IP Search: {args.ip[0]}")
-        print("""<style>h1 {margin-top:10px} h1, h3, h4, h5, h6 {margin-bottom:0px;} h3, h4 {margin-top:5px;}
-                        h2 {margin-bottom:5px;} td, th {padding: 0px 5px 0px 5px; text-align:left;}
+        def html_header(dest):
+            print("<!DOCTYPE html>", file=dest)
+            print("<html>", file=dest)
+            print("<div class='container'>", file=dest)
+            print(f"<head><p style='font-size:150%;text-align:center;color:blue;'>{partial}VPC Configuration Report for {repr_title}<br>{now}", file=dest)
+            if args.ip is not None:
+                print(f"<br>IP Search: {args.ip[0]}", file=dest)
+            print("""<style>h1 {margin-top:10px} h1, h3, h4, h5, h6 {margin-bottom:0px;} h3, h4 {margin-top:5px;}
+                            h2 {margin-bottom:5px;} td, th {padding: 0px 5px 0px 5px; text-align:left;}
 
-                        .container {
-                            //width: 90%;
-                            margin: 0px 35px;
-                        }
+                            .container {
+                                //width: 90%;
+                                margin: 0px 35px;
+                            }
 
-                        .accordion, .accordion2 {
-                            background-color: #f9f9f9;
-                            color: #000;
-                            cursor: pointer;
-                            border: none;
-                            outline: none;
-                            text-align: left;
-                            font-weight: bold;
-                            font-family: 'Times New Roman';
-                            font-size: 15px;
-                            min-width: 50%;
-                            transition: 175ms;
-                        }
+                            .accordion, .accordion2 {
+                                background-color: #f9f9f9;
+                                color: #000;
+                                cursor: pointer;
+                                border: none;
+                                outline: none;
+                                text-align: left;
+                                font-weight: bold;
+                                font-family: 'Times New Roman';
+                                font-size: 15px;
+                                min-width: 50%;
+                                transition: 175ms;
+                            }
 
-                        .active, .accordion:hover, .active2, .accordion2:hover {
-                            background-color: #e9e9e9;
-                        }
+                            .active, .accordion:hover, .active2, .accordion2:hover {
+                                background-color: #e9e9e9;
+                            }
 
-                        .accordion:after, .accordion2:after {
-                            background-color: #f9f9f9;
-                            content: '\\002B';
-                            color: #000;
-                            font-weight: bold;
-                            float: right;
-                            margin-left: 5px;
-                        }
+                            .accordion:after, .accordion2:after {
+                                background-color: #f9f9f9;
+                                content: '\\002B';
+                                color: #000;
+                                font-weight: bold;
+                                float: right;
+                                margin-left: 5px;
+                            }
 
-                        .active:after, .active2:after {
-                            content: '\\2212';
-                            background-color: #e9e9e9;
-                        }
+                            .active:after, .active2:after {
+                                content: '\\2212';
+                                background-color: #e9e9e9;
+                            }
 
-                        .sect, .sect2 {
-                            background-color: white;
-                            max-height: 0px;
-                            overflow: hidden;
-                            transition: max-height 175ms ease-out;
-                        }
-                </style>""")
-        print(f"<title>VPC Configuration Report ({repr_title})</title>")
-        print("</head><body>")
+                            .sect, .sect2 {
+                                background-color: white;
+                                max-height: 0px;
+                                overflow: hidden;
+                                transition: max-height 175ms ease-out;
+                            }
+                    </style>""", file=dest)
+            print(f"<title>VPC Configuration Report ({repr_title})</title>", file=dest)
+            print("</head><body>", file=dest)
 
-        ## process all vpcs
-        for vpc in vpcs['Vpcs']:
-            
+        def html_vpc_sections(dest, vpc, vpc_name):
             # get id for current vpc
             vpc_id = vpc['VpcId']
-
-            # if list of selected vpc-ids, see if this is excluded
-            if args.vpc_ids is not None:
-                if vpc_id not in args.vpc_ids:
-                    continue
-
-            # pull vpc name from tags if present, save the rest for printing
-            vpc_name = ""
-            if "Tags" in vpc:
-                tags = f"{button}Tags{div}<table><tbody>"
-                tmp = {}
-                for t in range(len(vpc['Tags'])):
-                    tmp[vpc['Tags'][t]['Key']] = vpc['Tags'][t]['Value']
-                    if vpc['Tags'][t]['Key'] == "Name":
-                        vpc_name = vpc['Tags'][t]['Value']
-                for k, v in sorted(tmp.items()):
-                    tags += tr+k+space+v
-                tags += "</table></div>"
 
             # save subnet names for other sections to use
             sn_names_dict = {} # sn_id -> sn_name
             if "Subnets" in vpc:
                 for sn in vpc['Subnets']:
-                    sn_names_dict[sn['SubnetId']] = ""
-                    for t in range(len(sn['Tags'])):
-                        if sn['Tags'][t]['Key'] == "Name":
-                            sn_names_dict[sn['SubnetId']] = sn['Tags'][t]['Value']
-                            break
+                    sn_names_dict[sn['SubnetId']] = get_tag_name(sn)
 
             # vpc name and id heading, along with current state
             # owner, tenancy
-            print(f"<hr><h1><span style='color:blue;'>{vpc_name}</span> {vpc_id} ({vpc['State']})</h1>")
-            print(f"Owner: {vpc['OwnerId']}, Tenancy: {vpc['InstanceTenancy']}<br>")
+            print(f"<hr><h1><span style='color:blue;'>{vpc_name}</span> {vpc_id} ({vpc['State']})</h1>", file=dest)
+            print(f"Owner: {vpc['OwnerId']}, Tenancy: {vpc['InstanceTenancy']}<br>", file=dest)
 
             # azs
             if "AvailabilityZones" in vpc:
-                if len(az_dict) == 0:
-                    for i in range(len(vpc['AvailabilityZones'])):
-                        messages = ""
-                        for m in vpc['AvailabilityZones'][i]['Messages']:
-                            messages += f"{m['Message']} "
-                        az_dict[vpc['AvailabilityZones'][i]['ZoneName']] = f"<tr><td>{vpc['AvailabilityZones'][i]['ZoneName']}<td>{vpc['AvailabilityZones'][i]['ZoneId']}<td>{vpc['AvailabilityZones'][i]['State']}<td>{messages}"
-                    azs = ""
-                    for k in sorted(az_dict):
-                        azs += az_dict[k]
-                print(f"{button}Availability Zones{div}<table><tbody>")
-                print(azs)
-                print("</table></div>")
+                az_dict = {}
+                for i in range(len(vpc['AvailabilityZones'])):
+                    messages = ""
+                    for m in vpc['AvailabilityZones'][i]['Messages']:
+                        messages += f"{m['Message']} "
+                    az_dict[vpc['AvailabilityZones'][i]['ZoneName']] = f"<tr><td>{vpc['AvailabilityZones'][i]['ZoneName']}<td>{vpc['AvailabilityZones'][i]['ZoneId']}<td>{vpc['AvailabilityZones'][i]['State']}<td>{messages}"
+                azs = ""
+                for k in sorted(az_dict):
+                    azs += az_dict[k]
+                print(f"{button}Availability Zones{div}<table><tbody>", file=dest)
+                print(azs, file=dest)
+                print("</table></div>", file=dest)
 
             # cidrs
             if "CidrBlock" in vpc:
-                print(f"{button}CIDR Blocks{div}<table><tbody>{tr}IPv4{space}")
+                print(f"{button}CIDR Blocks{div}<table><tbody>{tr}IPv4{space}", file=dest)
                 for c in range(len(vpc['CidrBlockAssociationSet'])):
-                    print(f"{vpc['CidrBlockAssociationSet'][c]['CidrBlock']} ({vpc['CidrBlockAssociationSet'][c]['CidrBlockState']['State']}) ")
+                    print(f"{vpc['CidrBlockAssociationSet'][c]['CidrBlock']} ({vpc['CidrBlockAssociationSet'][c]['CidrBlockState']['State']}) ", file=dest)
                 if "Ipv6CidrBlockAssociationSet" in vpc:
-                    print(f"{tr}IPv6{space}")
+                    print(f"{tr}IPv6{space}", file=dest)
                     for c in range(len(vpc['Ipv6CidrBlockAssociationSet'])):
-                        print(f"{vpc['Ipv6CidrBlockAssociationSet'][c]['Ipv6CidrBlock']} ({vpc['Ipv6CidrBlockAssociationSet'][c]['Ipv6CidrBlockState']['State']}) ")
-                print("</table></div>")
+                        print(f"{vpc['Ipv6CidrBlockAssociationSet'][c]['Ipv6CidrBlock']} ({vpc['Ipv6CidrBlockAssociationSet'][c]['Ipv6CidrBlockState']['State']}) ", file=dest)
+                print("</table></div>", file=dest)
 
             # dhcp options
             if "DhcpOptions" in vpc:
-                print(f"{button}DHCP Options ({vpc['DhcpOptionsId']}){div}<table><tbody>")
+                print(f"{button}DHCP Options ({vpc['DhcpOptionsId']}){div}<table><tbody>", file=dest)
                 for d in vpc['DhcpOptions'][0]['DhcpConfigurations']:
-                    print(tr+d['Key']+space)
+                    print(tr+d['Key']+space, file=dest)
                     for v in d['Values']:
-                        print(f"{v['Value']} ")
-                print("</table></div>")
+                        print(f"{v['Value']} ", file=dest)
+                print("</table></div>", file=dest)
 
             ## gateways
             if "EgressOnlyInternetGateways" in vpc or "InternetGateways" in vpc or "NatGateways" in vpc or "TransitGateways" in vpc:
-                print(f"{button}Gateways{div}<table><tbody>")
+                print(f"{button}Gateways{div}<table><tbody>", file=dest)
 
                 # egress only internet gateways
                 eoig_dict = {}
@@ -702,7 +711,7 @@ def main():
                             s = a['State']
                             v = a['VpcId']
                             eoig_dict[v] = [gid, s]
-                    print(f"{tr}Egress Only Internet Gateway{space}{eoig_dict[vpc_id][0]} ({eoig_dict[vpc_id][1]})")
+                    print(f"{tr}Egress Only Internet Gateway{space}{eoig_dict[vpc_id][0]} ({eoig_dict[vpc_id][1]})", file=dest)
 
                 # internet gateway
                 ig_dict = {}
@@ -713,7 +722,7 @@ def main():
                             s = a['State']
                             v = a['VpcId']
                             ig_dict[v] = [gid, s]
-                    print(f"{tr}Internet Gateway{space}{ig_dict[vpc_id][0]} ({ig_dict[vpc_id][1]})")
+                    print(f"{tr}Internet Gateway{space}{ig_dict[vpc_id][0]} ({ig_dict[vpc_id][1]})", file=dest)
 
                 # nat gateways
                 ng_dict = {}
@@ -735,22 +744,22 @@ def main():
                         else:
                             ng_dict[v] = [[gid, s, ct, ips, sn]]
                     for i in range(len(ng_dict[vpc_id])):
-                        print(f"{tr}NAT Gateway{space}{ng_dict[vpc_id][i][0]} ({ng_dict[vpc_id][i][1]}, {ng_dict[vpc_id][i][2]})<td>{ng_dict[vpc_id][i][3]}<td>{ng_dict[vpc_id][i][4]}")
+                        print(f"{tr}NAT Gateway{space}{ng_dict[vpc_id][i][0]} ({ng_dict[vpc_id][i][1]}, {ng_dict[vpc_id][i][2]})<td>{ng_dict[vpc_id][i][3]}<td>{ng_dict[vpc_id][i][4]}", file=dest)
 
                 # transit gateways
                 # get tgw's for vpc and dedupe the ids
                 if "TransitGateways" in vpc:
                     for i in range(len(vpc['TransitGateways'])):
-                        print(f"{tr}Transit Gateway{space}{vpc['TransitGateways'][i]['TransitGatewayId']} ({vpc['TransitGateways'][i]['State']})<td>{vpc['TransitGateways'][i]['Description']}")
+                        print(f"{tr}Transit Gateway{space}{vpc['TransitGateways'][i]['TransitGatewayId']} ({vpc['TransitGateways'][i]['State']})<td>{vpc['TransitGateways'][i]['Description']}", file=dest)
 
                 # end gateways
-                print(f"</table></div>")
+                print(f"</table></div>", file=dest)
 
             # network interfaces
             if 'NetworkInterfaces' in vpc:
-                print(f"{button}Network Interfaces{div}<table><tbody>")
+                print(f"{button}Network Interfaces{div}<table><tbody>", file=dest)
                 nif_dict = {}
-                print("<tr><th>Description<th>Att. Status<th>I/F Status<th>AZ<th>Subnet Name<th>Subnet ID<th>SG Names<th>SG IDs<th>Network I/F ID<th>Private IP<th>Other Private IPs<th>IPv4 Prefixes<tbody>")
+                print("<tr><th>Description<th>Att. Status<th>I/F Status<th>AZ<th>Subnet Name<th>Subnet ID<th>SG Names<th>SG IDs<th>Network I/F ID<th>Private IP<th>Other Private IPs<th>IPv4 Prefixes<tbody>", file=dest)
                 for nif in vpc['NetworkInterfaces']:
                     if "Groups" in nif and len(nif['Groups']) > 0:
                         sg_names = ""
@@ -786,14 +795,14 @@ def main():
                     nif_dict[nif_key] = f"<tr><td>{nif['Description']}<td>{nif['Attachment']['Status']}<td>{nif['Status']}<td>{nif['AvailabilityZone']}<td>{subnet_name}<td>{nif['SubnetId']}<td>{sg_names}<td>{sg_ids}<td>{nif['NetworkInterfaceId']}<td>{nif['PrivateIpAddress']}<td>{more_ips}<td>{prefix4}"
                 # print nifs sorted by desc + subnet id
                 for k in sorted(nif_dict):
-                    print(nif_dict[k])
-                print("</table></div>")
+                    print(nif_dict[k], file=dest)
+                print("</table></div>", file=dest)
 
             # subnets
             if "Subnets" in vpc:
                 snitems_dict = {}
-                print(f"{button}Subnets{div}<table><thead>")
-                print("<tr><th>Name<th>ID<th>Default<th>IPv4<th>IPv6<th>AZ<th>AZ ID<th>State<tbody>")
+                print(f"{button}Subnets{div}<table><thead>", file=dest)
+                print("<tr><th>Name<th>ID<th>Default<th>IPv4<th>IPv6<th>AZ<th>AZ ID<th>State<tbody>", file=dest)
                 for sn in vpc['Subnets']:
 
                     # default?
@@ -817,14 +826,14 @@ def main():
                     snitems_dict[snitems_key] = f"<tr><td>{sn_names_dict[sn['SubnetId']]}<td>{sn['SubnetId']}<td>{default}<td>{sn['CidrBlock']}<td>{cidrs}<td>{sn['AvailabilityZone']}<td>{sn['AvailabilityZoneId']}<td>{sn['State']}"
                 # print subnet info sorted by name + id
                 for k in sorted(snitems_dict):
-                    print(snitems_dict[k])
-                print("</table></div>")
+                    print(snitems_dict[k], file=dest)
+                print("</table></div>", file=dest)
 
             # vpc endpoints
             if "VpcEndpoints" in vpc:
-                print(f"{button}VPC Endpoints{div}<table><thead>")
+                print(f"{button}VPC Endpoints{div}<table><thead>", file=dest)
                 vpce_dict = {}
-                print("<tr><th>Endpoint ID<th>Endpoint Type<th>Service Name<th>State<th>Route Table IDs<th>Private DNS Enabled<tbody>")
+                print("<tr><th>Endpoint ID<th>Endpoint Type<th>Service Name<th>State<th>Route Table IDs<th>Private DNS Enabled<tbody>", file=dest)
                 for vpce in vpc['VpcEndpoints']:
                     if len(vpce['RouteTableIds']) > 0:
                         rt_ids =  ""
@@ -837,13 +846,13 @@ def main():
                     vpce_dict[vpce['VpcEndpointId']] = f"<tr><td>{vpce['VpcEndpointId']}<td>{vpce['VpcEndpointType']}<td>{vpce['ServiceName']}<td>{vpce['State']}<td>{rt_ids}<td>{vpce['PrivateDnsEnabled']}"
                 # print vpces sorted by endpoint id
                 for k in sorted(vpce_dict):
-                    print(vpce_dict[k])
-                print("</table></div>")
+                    print(vpce_dict[k], file=dest)
+                print("</table></div>", file=dest)
 
             # vpc peering connections
             if "VpcPeeringConnections" in vpc:
-                print(f"{button}VPC Peering Connections{div}<table><thead>")
-                print("<tr><th>Connection ID<th>Requester ID<th>Requester VPC<th>Requester CIDRs<th>Accepter ID<th>Accepter VPC<th>Accepter CIDRs<th>Status<tbody>")
+                print(f"{button}VPC Peering Connections{div}<table><thead>", file=dest)
+                print("<tr><th>Connection ID<th>Requester ID<th>Requester VPC<th>Requester CIDRs<th>Accepter ID<th>Accepter VPC<th>Accepter CIDRs<th>Status<tbody>", file=dest)
                 for pc in vpc['VpcPeeringConnections']:
                     rcidr = ""
                     sep = ""
@@ -865,32 +874,27 @@ def main():
                         for cidr in pc['AccepterVpcInfo']['Ipv6CidrBlockSet']:
                             acidr += f"{sep}{cidr['Ipv6CidrBlock']}"
                             sep = ", "
-                    print(f"<tr><td>{pc['VpcPeeringConnectionId']}<td>{pc['RequesterVpcInfo']['OwnerId']}<td>{pc['RequesterVpcInfo']['VpcId']}<td>{rcidr}<td>{pc['AccepterVpcInfo']['OwnerId']}<td>{pc['AccepterVpcInfo']['VpcId']}<td>{acidr}<td>{pc['Status']['Code']}")
-                print("</table></div>")
+                    print(f"<tr><td>{pc['VpcPeeringConnectionId']}<td>{pc['RequesterVpcInfo']['OwnerId']}<td>{pc['RequesterVpcInfo']['VpcId']}<td>{rcidr}<td>{pc['AccepterVpcInfo']['OwnerId']}<td>{pc['AccepterVpcInfo']['VpcId']}<td>{acidr}<td>{pc['Status']['Code']}", file=dest)
+                print("</table></div>", file=dest)
 
             # route tables
             if "RouteTables" in vpc:
-                # print("<h4 style='text-decoration:underline;'>Route Tables</h4><table><tbody><tr><td>")
-                print(f"{button2}Route Tables{div2}<table><tbody><tr><td>")
+                print(f"{button2}Route Tables{div2}<table><tbody><tr><td>", file=dest)
                 for rt in vpc['RouteTables']:
 
                     # get table name from tags if it exists
-                    rt_name = ""
-                    for t in range(len(rt['Tags'])):
-                        if rt['Tags'][t]['Key'] == "Name":
-                            rt_name = rt['Tags'][t]['Value']
-                            break
+                    rt_name = get_tag_name(rt)
                     
                     # route table name and id
-                    print(f"<h4><span style='color:blue;'>{rt_name} ({rt['RouteTableId']})</span></h4>")
+                    print(f"<h4><span style='color:blue;'>{rt_name} ({rt['RouteTableId']})</span></h4>", file=dest)
 
                     # put route table items in a big table for readability
-                    print(f"<table style='min-width:800px'><tbody><tr><td>")
+                    print(f"<table style='min-width:800px'><tbody><tr><td>", file=dest)
 
                     # list subnet associations
-                    print(f"{button}Subnet/Gateway Associations{div}")
+                    print(f"{button}Subnet/Gateway Associations{div}", file=dest)
                     snas_dict = {}
-                    print("<table><tbody>")
+                    print("<table><tbody>", file=dest)
                     for a in rt['Associations']:
                         if a['Main']:
                             snas_dict['Main'] = f"<tr><td>Main ({a['AssociationState']['State']})"
@@ -909,22 +913,22 @@ def main():
                             print(f"{tr}This association is not yet supported: {a}")
                     # print snas sorted by group + ids
                     for k in sorted(snas_dict):
-                        print(snas_dict[k])
-                    print("</table></div>")
+                        print(snas_dict[k], file=dest)
+                    print("</table></div>", file=dest)
 
                     # list routes
-                    print(f"<tr><td>{button}Routes{div}")
-                    print("<table><tr><th>Destination<th>Target<th>Status<th>Origin/Propagation<th>Notes<tbody>")
+                    print(f"<tr><td>{button}Routes{div}", file=dest)
+                    print("<table><tr><th>Destination<th>Target<th>Status<th>Origin/Propagation<th>Notes<tbody>", file=dest)
                     for r in rt['Routes']:
                         notes = ""
                         if "DestinationCidrBlock" in r:
-                            dest = r['DestinationCidrBlock']
+                            rdest = r['DestinationCidrBlock']
                         elif "DestinationIpv6CidrBlock" in r:
-                            dest = r['DestinationIpv6CidrBlock']
+                            rdest = r['DestinationIpv6CidrBlock']
                         elif "DestinationPrefixListId" in r:
-                            dest = r['DestinationPrefixListId']
+                            rdest = r['DestinationPrefixListId']
                         else:
-                            dest = f"This destination is not yet supported: {r}"
+                            rdest = f"This destination is not yet supported: {r}"
                         if "EgressOnlyInternetGatewayId" in r:
                             target = r['EgressOnlyInternetGatewayId']
                         elif "GatewayId" in r:
@@ -947,46 +951,36 @@ def main():
                             target = f"This target is not yet supported: {r}"
                         if "Notes" in r:
                             notes = r['Notes']
-                        print(f"<tr><td>{dest}<td>{target}<td>{r['State']}<td>{r['Origin']}<td>{notes}</tr>")
-                    print("</table></div></table>")
-                print("</table></div>")
+                        print(f"<tr><td>{rdest}<td>{target}<td>{r['State']}<td>{r['Origin']}<td>{notes}</tr>", file=dest)
+                    print("</table></div></table>", file=dest)
+                print("</table></div>", file=dest)
 
             # security groups
             if "SecurityGroups" in vpc:
                 # print("<h4 style='text-decoration:underline;'>Security Groups</h4><table><tbody>")
-                print(f"{button2}Security Groups{div2}<table><tbody>")
+                print(f"{button2}Security Groups{div2}<table><tbody>", file=dest)
                 for sg in vpc['SecurityGroups']:
 
                     # get group name from tags if it exists
-                    sg_name = ""
-                    if "Tags" in sg:
-                        for t in range(len(sg['Tags'])):
-                            if sg['Tags'][t]['Key'] == "Name":
-                                sg_name = sg['Tags'][t]['Value']
-                                break
+                    sg_name = get_tag_name(sg)
 
                     # group heading
-                    print(f"<tr><td><h4><span style='color:blue;'>{sg_name} ({sg['GroupId']})</span></h4>")
-                    print(f"<tr><td><strong>Group Name:</strong> {sg['GroupName']}<br><strong>Description:</strong> {sg['Description']}<tr><td>")
+                    print(f"<tr><td><h4><span style='color:blue;'>{sg_name} ({sg['GroupId']})</span></h4>", file=dest)
+                    print(f"<tr><td><strong>Group Name:</strong> {sg['GroupName']}<br><strong>Description:</strong> {sg['Description']}<tr><td>", file=dest)
 
                     # put sg tables in a big table for readability
-                    print("<table style='min-width:800px'><tbody><tr><td>")
+                    print("<table style='min-width:800px'><tbody><tr><td>", file=dest)
 
                     # list inbound rules
-                    print(f"{button}Inbound Rules{div}")
-                    print("<table><tr><th>Name<th>Rule ID<th>Protocol<th>Ports<th>Source<th>Description<tbody>")
+                    print(f"{button}Inbound Rules{div}", file=dest)
+                    print("<table><tr><th>Name<th>Rule ID<th>Protocol<th>Ports<th>Source<th>Description<tbody>", file=dest)
 
                     for sgr in sg['SecurityGroupRules']:
                         if sgr['IsEgress'] == False:
                             
                             # get rule name from tags if it exists
                             # set other columns
-                            sgr_name = ""
-                            if "Tags" in sgr:
-                                for t in range(len(sgr['Tags'])):
-                                    if sg['Tags'][t]['Key'] == "Name":
-                                        sgr_name = sg['Tags'][t]['Value']
-                                        break
+                            sgr_name = get_tag_name(sgr)
                             if sgr['IpProtocol'] in protocols:
                                 protocol = protocols[sgr['IpProtocol']]
                             else:
@@ -1009,24 +1003,19 @@ def main():
                                 desc = sgr['Description']
                             else:
                                 desc = "-"
-                            print(f"<tr><td>{sgr_name}<td>{sgr['SecurityGroupRuleId']}<td>{protocol}<td>{ports}<td>{cidr}<td>{desc}</tr>")
-                    print("</table></div>")
+                            print(f"<tr><td>{sgr_name}<td>{sgr['SecurityGroupRuleId']}<td>{protocol}<td>{ports}<td>{cidr}<td>{desc}</tr>", file=dest)
+                    print("</table></div>", file=dest)
 
                     # list outbound rules
-                    print(f"{button}Outbound Rules{div}")
-                    print("<table><tr><th>Name<th>Rule ID<th>Protocol<th>Ports<th>Destination<th>Description<tbody>")
+                    print(f"{button}Outbound Rules{div}", file=dest)
+                    print("<table><tr><th>Name<th>Rule ID<th>Protocol<th>Ports<th>Destination<th>Description<tbody>", file=dest)
 
                     for sgr in sg['SecurityGroupRules']:
                         if sgr['IsEgress'] == True:
                             
                             # get rule name from tags if it exists
                             # set other columns
-                            sgr_name = ""
-                            if "Tags" in sgr:
-                                for t in range(len(sgr['Tags'])):
-                                    if sg['Tags'][t]['Key'] == "Name":
-                                        sgr_name = sg['Tags'][t]['Value']
-                                        break
+                            sgr_name = get_tag_name(sgr)
                             if sgr['IpProtocol'] in protocols:
                                 protocol = protocols[sgr['IpProtocol']]
                             else:
@@ -1049,14 +1038,13 @@ def main():
                                 desc = sgr['Description']
                             else:
                                 desc = "-"
-                            print(f"<tr><td>{sgr_name}<td>{sgr['SecurityGroupRuleId']}<td>{protocol}<td>{ports}<td>{cidr}<td>{desc}</tr>")
-                    print("</table></div></table>")
-                print("</table></div>")
+                            print(f"<tr><td>{sgr_name}<td>{sgr['SecurityGroupRuleId']}<td>{protocol}<td>{ports}<td>{cidr}<td>{desc}</tr>", file=dest)
+                    print("</table></div></table>", file=dest)
+                print("</table></div>", file=dest)
 
             # nacls
             if "NetworkAcls" in vpc:
-                # print("<h4 style='text-decoration:underline;'>Network Access Control Lists</h4><table><tbody><tr><td>")
-                print(f"{button2}Network Access Control Lists{div2}<table><tbody><tr><td>")
+                print(f"{button2}Network Access Control Lists{div2}<table><tbody><tr><td>", file=dest)
                 for nacl in vpc['NetworkAcls']:
 
                     # default nacl?
@@ -1065,23 +1053,18 @@ def main():
                         default = " - Default"
 
                     # get nacl name from tags if it exists
-                    nacl_name = ""
-                    if "Tags" in nacl:
-                        for t in range(len(nacl['Tags'])):
-                            if nacl['Tags'][t]['Key'] == "Name":
-                                nacl_name = nacl['Tags'][t]['Value']
-                                break
+                    nacl_name = get_tag_name(nacl)
 
                     # nacl heading
-                    print(f"<h4><span style='color:blue;'>{nacl_name} ({nacl['NetworkAclId']}{default})</span></h4>")
+                    print(f"<h4><span style='color:blue;'>{nacl_name} ({nacl['NetworkAclId']}{default})</span></h4>", file=dest)
 
                     # put nacl tables in a big table for readability
-                    print("<table style='min-width:800px'><tbody><tr><td>")
+                    print("<table style='min-width:800px'><tbody><tr><td>", file=dest)
 
                     # list subnet associations
-                    print(f"{button}Subnet Associations{div}")
+                    print(f"{button}Subnet Associations{div}", file=dest)
                     snas_dict = {}
-                    print("<table><tbody>")
+                    print("<table><tbody>", file=dest)
                     for a in nacl['Associations']:
                         if a['SubnetId'] in sn_names_dict:
                             subnet_name = sn_names_dict[a['SubnetId']]
@@ -1092,12 +1075,12 @@ def main():
                         snas_dict[snas_key] = f"<tr><td>{subnet_name}<td>{a['SubnetId']}"
                     # print sna sorted by group + ids
                     for k in sorted(snas_dict):
-                        print(snas_dict[k])
-                    print("</table></div>")
+                        print(snas_dict[k], file=dest)
+                    print("</table></div>", file=dest)
 
                     # list inbound rules
-                    print(f"{button}Inbound Rules{div}")
-                    print("<table><tr><th>Rule#<th>Protocol<th>Ports<th>Source<th>Allow/Deny<tbody>")
+                    print(f"{button}Inbound Rules{div}", file=dest)
+                    print("<table><tr><th>Rule#<th>Protocol<th>Ports<th>Source<th>Allow/Deny<tbody>", file=dest)
                     for e in nacl['Entries']:
                         if not e['Egress']:
                             if e['Protocol'] in protocols:
@@ -1117,12 +1100,12 @@ def main():
                                 cidr = e['CidrBlock']
                             else:
                                 cidr = e['Ipv6CidrBlock']
-                            print(f"<tr><td>{e['RuleNumber']}<td>{protocol}<td>{ports}<td>{cidr}<td>{e['RuleAction'].capitalize()}</tr>")
-                    print("</table></div>")
+                            print(f"<tr><td>{e['RuleNumber']}<td>{protocol}<td>{ports}<td>{cidr}<td>{e['RuleAction'].capitalize()}</tr>", file=dest)
+                    print("</table></div>", file=dest)
 
                     # list outbound rules
-                    print(f"{button}Outbound Rules{div}")
-                    print("<table><tr><th>Rule#<th>Protocol<th>Ports<th>Destination<th>Allow/Deny<tbody>")
+                    print(f"{button}Outbound Rules{div}", file=dest)
+                    print("<table><tr><th>Rule#<th>Protocol<th>Ports<th>Destination<th>Allow/Deny<tbody>", file=dest)
                     for e in nacl['Entries']:
                         if e['Egress']:
                             if e['Protocol'] in protocols:
@@ -1142,47 +1125,99 @@ def main():
                                 cidr = e['CidrBlock']
                             else:
                                 cidr = e['Ipv6CidrBlock']
-                            print(f"<tr><td>{e['RuleNumber']}<td>{protocol}<td>{ports}<td>{cidr}<td>{e['RuleAction'].capitalize()}</tr>")
-                    print("</table></div></table>")
-                print("</table></div>")
+                            print(f"<tr><td>{e['RuleNumber']}<td>{protocol}<td>{ports}<td>{cidr}<td>{e['RuleAction'].capitalize()}</tr>", file=dest)
+                    print("</table></div></table>", file=dest)
+                print("</table></div>", file=dest)
 
             # VPC TAGS
             if "Tags" in vpc:
-                print(tags)
+                print(f"{button}Tags{div}<table><tbody>", file=dest)
+                tmp = {}
+                for t in range(len(vpc['Tags'])):
+                    tmp[vpc['Tags'][t]['Key']] = vpc['Tags'][t]['Value']
+                for k, v in sorted(tmp.items()):
+                    print(tr+k+space+v, file=dest)
+                print("</table></div>", file=dest)
         
+
+        def html_footer(dest):
         # eoj - print footer and accordion formatting jscripts
-        print("""<hr><p><strong>EOF</strong></p>
-                <script>
-                    const accordionBtns = document.querySelectorAll('.accordion');
-                    accordionBtns.forEach((accordion) => {
-                        accordion.onclick = function () {
-                            this.classList.toggle('active');
-                            let sect = this.nextElementSibling;
-                            if (sect.style.maxHeight) {
-                                // accordion is open, close it
-                                sect.style.maxHeight = null;
-                            } else {
-                                // accordion is closed, open it
-                                sect.style.maxHeight = sect.scrollHeight + 'px';
-                            }
-                        };
-                    });
-                    const accordionBtns2 = document.querySelectorAll('.accordion2');
-                    accordionBtns2.forEach((accordion2) => {
-                        accordion2.onclick = function () {
-                            this.classList.toggle('active2');
-                            let sect2 = this.nextElementSibling;
-                            if (sect2.style.maxHeight) {
-                                // accordion is open, close it
-                                sect2.style.maxHeight = null;
-                            } else {
-                                // accordion is closed, open it
-                                sect2.style.maxHeight = '100%';
-                            }
-                        };
-                    });
-                </script>
-                </body></div></html>""")
+            print("""<hr><p><strong>EOF</strong></p>
+                    <script>
+                        const accordionBtns = document.querySelectorAll('.accordion');
+                        accordionBtns.forEach((accordion) => {
+                            accordion.onclick = function () {
+                                this.classList.toggle('active');
+                                let sect = this.nextElementSibling;
+                                if (sect.style.maxHeight) {
+                                    // accordion is open, close it
+                                    sect.style.maxHeight = null;
+                                } else {
+                                    // accordion is closed, open it
+                                    sect.style.maxHeight = sect.scrollHeight + 'px';
+                                }
+                            };
+                        });
+                        const accordionBtns2 = document.querySelectorAll('.accordion2');
+                        accordionBtns2.forEach((accordion2) => {
+                            accordion2.onclick = function () {
+                                this.classList.toggle('active2');
+                                let sect2 = this.nextElementSibling;
+                                if (sect2.style.maxHeight) {
+                                    // accordion is open, close it
+                                    sect2.style.maxHeight = null;
+                                } else {
+                                    // accordion is closed, open it
+                                    sect2.style.maxHeight = '100%';
+                                }
+                            };
+                        });
+                    </script>
+                    </body></div></html>""", file=dest)
+
+        # single html to stdout
+        if args.split is None:
+
+            # output html header once
+            html_header(sys.stdout)
+
+            # process all vpcs
+            for vpc in vpcs['Vpcs']:
+
+                # if list of selected vpc-ids, see if this is excluded
+                vpc_id = vpc['VpcId']
+                if args.vpc_ids is not None:
+                    if vpc_id not in args.vpc_ids:
+                        continue
+
+                # pull vpc name from tags if present
+                vpc_name = get_tag_name(vpc)
+
+                # output html for vpc
+                html_vpc_sections(sys.stdout, vpc, vpc_name)
+
+            # output html footer once
+            html_footer(sys.stdout)
+
+        # split into individual html files
+        else:
+
+            # process each vpc
+            for vpc in vpcs['Vpcs']:
+
+                vpc_id = vpc['VpcId']
+                vpc_name = get_tag_name(vpc)
+                vpc_file = vpc_name
+
+                # split by id or name not available
+                if args.split == "id" or vpc_file == "":
+                    vpc_file = vpc_id
+
+                # output html to file
+                with open(f'{vpc_file}.html', mode='w') as vf:
+                    html_header(vf)
+                    html_vpc_sections(vf, vpc, vpc_name)
+                    html_footer(vf)
 
 if __name__ == '__main__': main()
 

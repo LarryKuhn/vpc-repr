@@ -8,7 +8,7 @@ This was written with the hope of alleviating the nuisance that can be experienc
 
 The software does not focus at all on EC2 instances.  While all of the code uses the Boto3 EC2 client using describe-xxx methods, the focus is on configuration items such as Route Tables and Security Groups. Here is a quick image of a collapsed page with a little redaction:
 
-<img src="html2.png" style="zoom: 67%;" />
+<img src="html2.png" style="zoom: 100%;" />
 
 ## Version 2 Features
 
@@ -43,7 +43,9 @@ With version 2, I've added some features that terminal users might be interested
 ```bash
 
 usage: vpc-repr.py [-h] [-filename FILENAME] [-profile PROFILE] [-region REGION] [-vpc-ids vpc-id [vpc-id ...]] [-j [filename]]
-                   [-w] [-ip IP] [-verbose] [-az] [-ci] [-do] [-ep] [-gw] [-na] [-ni] [-pc] [-rt] [-ta] [-sh] [-sn] [-sg] [-vp]
+                   [-split [name|id] [-w] [-ip IP] [-verbose] [-az] [-ci] [-do] [-ep] [-gw] [-na] [-ni] [-pc] [-rt] [-ta] 
+                   [-sh] [-sn] [-sg] [-vp]
+                   
 
 VPC Report Generator
 
@@ -57,6 +59,7 @@ optional arguments:
                         When specified, limits to one or more VPC IDs versus all VPCs in the Region
   -j [filename], -json [filename]
                         Output JSON to stdout (unless -w specified), optionally specify filename to override vpc-repr.json
+  -split [name|ids]     Instead of stdout, output JSON/HTML is written to multiple files using VPC name or id as filename
   -w, -web              Output HTML to stdout
   -ip IP                IP Search - enter IP Address or Network with prefix (e.g. 10.10.10.10 or 10.10.10.0/24)
   -verbose              Display additonal help on -ip switch and command line examples
@@ -107,6 +110,10 @@ All Modes:
           (e.g. subnet names if -sn section is omitted)
     . to capture section switch limited json to a file, use -j switch and redirect stdout to a file
     . use -ip search switch to look for ip address and network overlaps
+    . use -split [name|id] to write multiple output files versus stdout (JSON or HTML)
+    	. uses VPC tag name or VPC id as the file name; will overwrite existing files with the same name
+    	. defaults to name, which will use the name (if available from tags) or use id
+        . split json files can be read back into application using -f filename option
     . use -verbose switch for more info on -ip switch and command line examples
     
 ```
@@ -129,6 +136,7 @@ IP Search Switch:
         . argument ip directly matches found ip
         . will NOT match 2 IPs that might be in the same network (no way of knowing)
     . when a match is found, a yellow 'Match Found' will be written next to the match on screen
+    . if -ip and -split are used with JSON output, highlighting is disabled ('#Match Found!#' is used)
     . may find customer owned ip but generally will not find customer owned ip pools
 
 Examples:
