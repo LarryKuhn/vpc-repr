@@ -284,10 +284,10 @@ def main():
         del ng_dict['ResponseMetadata']
 
         # eliminate default vpc
-        # for i in range(len(vpcs['Vpcs'])):
-        #     if vpcs['Vpcs'][i]['IsDefault'] is True:
-        #         del vpcs['Vpcs'][i]
-        #         break
+        for i in range(len(vpcs['Vpcs'])):
+            if vpcs['Vpcs'][i]['IsDefault'] is True:
+                del vpcs['Vpcs'][i]
+                break
 
         ## process all vpcs to build each vpc object
         for vpc in vpcs['Vpcs']:
