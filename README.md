@@ -58,10 +58,13 @@ optional arguments:
   -vpc-ids vpc-id [vpc-id ...]
                         When specified, limits to one or more VPC IDs versus all VPCs in the Region
   -j [filename], -json [filename]
-                        Output JSON to stdout (unless -w specified), optionally specify filename to override vpc-repr.json
-  -split [name|ids]     Instead of stdout, output JSON/HTML is written to multiple files using VPC name or id as filename
+                        Output JSON to stdout (unless -w specified), optionally specify filename to
+                        override vpc-repr.json
+  -split [name|ids]     Instead of stdout, output JSON/HTML is written to multiple files using VPC
+                        name or id as filename
   -w, -web              Output HTML to stdout
-  -ip IP                IP Search - enter IP Address or Network with prefix (e.g. 10.10.10.10 or 10.10.10.0/24)
+  -ip IP                IP Search - enter IP Address or Network with prefix (e.g. 10.10.10.10 or 
+                        10.10.10.0/24)
   -verbose              Display additonal help on -ip switch and command line examples
   -az                   Show Availability Zones
   -ci                   Show CIDR Blocks
@@ -92,17 +95,20 @@ Standard Mode:
         . for all VPCs in region (except default VPC) or only those specified with -vpc-ids
     . complete json from AWS (except ResponseMetadata) is always written to a file
         . describe_vpcs() is used to load the vpc objects into memory
-        . each vpc object is augmented with other objects (e.g. "AvailabilityZones":...) using other describe methods
-          to build a larger vpc object
+        . each vpc object is augmented with other objects (e.g. "AvailabilityZones":...) using other
+          describe methods to build a larger vpc object
         . output is written to 'vpc-repr.json' unless a filename is specified after -j switch
-        . output json is slightly augmented in some cases with a 'Notes' attribute with comments or 'name' data
-          taken from a separate AWS method
+        . output json is slightly augmented in some cases with a 'Notes' attribute with comments or
+          'name' data taken from a separate AWS method
 
 All Modes:
     . -j or -w dictates output format to stdout (-w is assumed if no switch is specified)
-        . if -j and -w are not specified, json is written to vpc-repr.json and html is written to stdout
-        . if -j and -w are both specified, json is written to filename, if specified, and html is written to stdout
-        . if -j alone is specified, json is written to vpc-repr.json or filename specifed, and is written to stdout
+        . if -j and -w are not specified, json is written to vpc-repr.json and html is 
+          written to stdout
+        . if -j and -w are both specified, json is written to filename, if specified, and html is 
+          written to stdout
+        . if -j alone is specified, json is written to vpc-repr.json or filename specifed, and is 
+          written to stdout
     . section switches (e.g. -az, -ci, -do) control stdout output sections only
         . no switches causes ALL sections to be output to stdout
         . one switch will cause the VPC shell and that section only to be output to stdout
