@@ -31,6 +31,9 @@ import re
 #     - added capability to find ip network matches and highlight in stdout
 #   9/15/2021 Version 2.0.1, L. Kuhn
 #     - added -split [name|id] option to create multiple reports or json files
+#   9/17/2021 Version 2.0.2, L. Kuhn
+#     - fixed network interfaces dict key bug (was dropping records)
+#     - added public ip to network interfaces output
 
 
 def datetime_handler(o):
@@ -759,8 +762,13 @@ def main():
             if 'NetworkInterfaces' in vpc:
                 print(f"{button}Network Interfaces{div}<table><tbody>", file=dest)
                 nif_dict = {}
-                print("<tr><th>Description<th>Att. Status<th>I/F Status<th>AZ<th>Subnet Name<th>Subnet ID<th>SG Names<th>SG IDs<th>Network I/F ID<th>Private IP<th>Other Private IPs<th>IPv4 Prefixes<tbody>", file=dest)
+                print("<tr><th>Description<th>Att. Status<th>I/F Status<th>AZ<th>Subnet Name<th>Subnet ID<th>SG Names<th>SG IDs<th>Network I/F ID<th>Private IP<th>Public IP<th>Other Private IPs<th>IPv4 Prefixes<tbody>", file=dest)
                 for nif in vpc['NetworkInterfaces']:
+                    if "Association" in nif:
+                        if "PublicIp" in nif['Association']:
+                            public_ip = nif['Association']['PublicIp'] 
+                    else:
+                        public_ip = "-"
                     if "Groups" in nif and len(nif['Groups']) > 0:
                         sg_names = ""
                         sg_ids = ""
@@ -791,8 +799,8 @@ def main():
                         subnet_name = sn_names_dict[nif['SubnetId']]
                     else:
                         subnet_name = "name n/a"
-                    nif_key = str(nif['Description'] + spaces)[:100] + nif['SubnetId'] 
-                    nif_dict[nif_key] = f"<tr><td>{nif['Description']}<td>{nif['Attachment']['Status']}<td>{nif['Status']}<td>{nif['AvailabilityZone']}<td>{subnet_name}<td>{nif['SubnetId']}<td>{sg_names}<td>{sg_ids}<td>{nif['NetworkInterfaceId']}<td>{nif['PrivateIpAddress']}<td>{more_ips}<td>{prefix4}"
+                    nif_key = str(nif['Description'] + spaces)[:100] + nif['SubnetId'] + nif['NetworkInterfaceId']
+                    nif_dict[nif_key] = f"<tr><td>{nif['Description']}<td>{nif['Attachment']['Status']}<td>{nif['Status']}<td>{nif['AvailabilityZone']}<td>{subnet_name}<td>{nif['SubnetId']}<td>{sg_names}<td>{sg_ids}<td>{nif['NetworkInterfaceId']}<td>{nif['PrivateIpAddress']}<td>{public_ip}<td>{more_ips}<td>{prefix4}"
                 # print nifs sorted by desc + subnet id
                 for k in sorted(nif_dict):
                     print(nif_dict[k], file=dest)
