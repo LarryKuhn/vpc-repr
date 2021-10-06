@@ -34,6 +34,8 @@ import re
 #   9/17/2021 Version 2.0.2, L. Kuhn
 #     - fixed network interfaces dict key bug (was dropping records)
 #     - added public ip to network interfaces output
+#   10/6/2021 Version 2.0.3, L. Kuhn
+#     - changed left/right arrow to &lrarr; due to encoding problems
 
 
 def datetime_handler(o):
@@ -739,7 +741,7 @@ def main():
                         if "NatGatewayAddresses" in g:
                             sep = ""
                             for nga in g['NatGatewayAddresses']:
-                                ips += f"{sep}{nga['NetworkInterfaceId']}: {nga['PrivateIp']}↔{nga['PublicIp']}"
+                                ips += f"{sep}{nga['NetworkInterfaceId']}: {nga['PrivateIp']}&lrarr;{nga['PublicIp']}"
                                 sep = ", "
                         sn = g['SubnetId']
                         if v in ng_dict:
